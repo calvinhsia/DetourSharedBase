@@ -6,6 +6,8 @@
 *.user
 *.userosscache
 *.sln.docstates
+CSLife.Exe
+CSLife.Exe.config
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs

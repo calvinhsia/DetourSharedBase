@@ -58,7 +58,7 @@ namespace CSLife
             {
                 for (y = 0; y < m_numy; y++)
                 {
-                    var ptr = Marshal.AllocHGlobal(1000);
+                    var ptr = Marshal.AllocHGlobal(1000); // heapalloc
                     Marshal.FreeHGlobal(ptr);
                     if (fDrawAll || m_diff[x, y] == 1)
                     {
@@ -332,6 +332,17 @@ namespace CSLife
             m_button.Click += new EventHandler(this.handlethebutton);
 
             Controls.Add(m_box);
+            var tmr = new System.Windows.Forms.Timer();
+            tmr.Tick += (o, e) =>
+              {
+                  var ptr = Marshal.AllocHGlobal(1000); // heapalloc
+                  Marshal.FreeHGlobal(ptr);
+              };
+            tmr.Interval = (int)TimeSpan.FromMilliseconds(100).TotalMilliseconds;
+            tmr.Enabled = true;
+
+
+
             //                this.Paint += new PaintEventHandler(this.FormPaint);
             this.Activated += new EventHandler(this.OnActivated);
             this.Click += new EventHandler(this.OnClick);

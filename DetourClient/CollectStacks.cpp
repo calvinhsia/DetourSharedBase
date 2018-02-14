@@ -12,6 +12,8 @@ CComAutoCriticalSection g_critSectHeapAlloc;
 int g_nTotalAllocs;
 LONGLONG g_TotalAllocSize;
 
+LONG g_MyStlAllocTotalAlloc = 0;
+
 template <class T>
 struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use-a-custom-allocator-for-your-stl-container/
 {
@@ -43,6 +45,7 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		{
 			throw std::bad_array_new_length();
 		}
+		InterlockedAdd(&g_MyStlAllocTotalAlloc, n);
 		unsigned nSize =(UINT) n * sizeof(T);
 		void *pv;
 		if (Real_RtlAllocateHeap == nullptr)
@@ -59,8 +62,9 @@ struct MySTLAlloc // https://blogs.msdn.microsoft.com/calvin_hsia/2010/03/16/use
 		}
 		return static_cast<T*>(pv);
 	}
-	void deallocate(T* const p, size_t) const
+	void deallocate(T* const p, size_t size) const
 	{
+		InterlockedAdd(&g_MyStlAllocTotalAlloc, -((int)size));
 		HeapFree(m_hHeap, 0, p);
 	}
 	HANDLE m_hHeap; // a heap to use to allocate our stuff. If 0, use VSAssert private debug heap
@@ -116,9 +120,9 @@ struct StacksByAllocSize
 			res->second.cnt++;
 		}
 	}
-	int GetTotalNumStacks()
+	LONGLONG GetTotalNumStacks()
 	{
-		UINT tot = 0;
+		auto tot = 0l;
 		for (auto stack : _stacks)
 		{
 			tot += stack.second.cnt;
@@ -141,10 +145,12 @@ typedef unordered_map<UINT, StacksByAllocSize,
 mapStacksByAllocSize g_mapStacksByAllocSize;
 
 
-int GetNumStacksCollected()
+LONGLONG GetNumStacksCollected()
 {
-	int nTotCnt = 0;
+	LONGLONG nTotCnt = 0;
 	LONGLONG nTotSize = 0;
+	int nUniqueStacks = 0;
+	int nFrames = 0;
 	for (auto entry : g_mapStacksByAllocSize)
 	{
 		auto stackBySize = entry.second;
@@ -154,8 +160,10 @@ int GetNumStacksCollected()
 		nTotCnt += cnt;
 		for (auto stk : entry.second._stacks)
 		{
+			nUniqueStacks++;
 			for (auto frm : stk.second.vecFrames)
 			{
+				nFrames++;
 				auto f = frm;  // output {frm}
 			}
 		}
@@ -187,12 +195,6 @@ sizeAlloc=72 cnt=25
 */
 
 	_ASSERT_EXPR(g_nTotalAllocs == nTotCnt, L"Total # allocs shouuld match");
-	if (nTotCnt - g_nTotalAllocs == 1)
-	{
-		auto diff = (UINT)(nTotSize - g_TotalAllocSize);
-		auto res = g_mapStacksByAllocSize.find(diff);
-
-	}
 	_ASSERT_EXPR(g_TotalAllocSize == nTotSize, L"Total size allocs should match");
 	return nTotCnt;
 }
@@ -201,6 +203,8 @@ void CollectStacks(int size)
 {
 	CallStack callStack(NumFramesTocapture);
 	CComCritSecLock<CComAutoCriticalSection> lock(g_critSectHeapAlloc);
+	g_nTotalAllocs++;
+	g_TotalAllocSize += (int)size;
 
 	// We want to use the size as the key: see if we've seen this key before
 	auto res = g_mapStacksByAllocSize.find(size);

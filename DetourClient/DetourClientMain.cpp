@@ -4,7 +4,7 @@
 #include "stdio.h"
 
 void CollectStacks(int size);
-int GetNumStacksCollected();
+LONGLONG GetNumStacksCollected();
 int g_tlsIndex;
 pfnRtlAllocateHeap Real_RtlAllocateHeap;
 SIZE_T g_AllocSizeThresholdForStackCollection = 0;// 1024 * 1024;
@@ -13,7 +13,7 @@ extern LONGLONG g_TotalAllocSize;
 
 void DoSomeManagedCode();
 
-//#define USETLSINDEX 1
+#define USETLSINDEX 1
 
 #if !USETLSINDEX
 
@@ -41,7 +41,7 @@ So we'll use 0 for Uninitialized. 1 for IsRecur, 2 for RecurDone
 #define TLSNotRecurring (PVOID)2 
 #define TLSIsInitialized (TlsGetValue(g_tlsIndex) != 0)
 #define TLSISRecur 1
-#define ISRECUR TlsGetValue(g_tlsIndex) == TLSISRecur
+#define ISRECUR (TlsGetValue(g_tlsIndex) == (PVOID)TLSISRecur)
 #define SETRECUR TlsSetValue(g_tlsIndex,(PVOID)TLSISRecur);
 #define SETRECURDONE TlsSetValue(g_tlsIndex,TLSNotRecurring);
 
@@ -53,11 +53,10 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 	if (size > g_AllocSizeThresholdForStackCollection)
 	{
 #if !USETLSINDEX
-		//thread_local 
+		thread_local 
 		static bool tlRecursionHeapAlloc = false;
 #endif
 		/*
-		This exception is thrown only if ControlFlowGuard is on and single stepping the assembly code here
 		tlsindex is valid, but the tls data is 0, dereferencing ecx:
 
 		0F434A6E A1 F8 5B 44 0F       mov         eax,dword ptr [_tls_index (0F445BF8h)]
@@ -71,8 +70,6 @@ PVOID WINAPI MyRtlAllocateHeap(HANDLE hHeap, ULONG dwFlags, SIZE_T size)
 		if (!ISRECUR) // this is the more expensive thread local check
 		{
 			SETRECUR;
-			g_nTotalAllocs++;
-			g_TotalAllocSize += (int)size;
 			CollectStacks((int)size);
 			SETRECURDONE;
 		}
@@ -156,6 +153,8 @@ void HookInMyOwnVersion(BOOL fHook)
 		{
 			_ASSERT_EXPR(false, L"Failed to redirect detour");
 		}
+
+		// when undetouring heap, be careful because HeapAlloc can call HeapAlloc
 		if (fnRedirectDetour(DTF_RtlAllocateHeap, nullptr, nullptr) != S_OK)
 		{
 			_ASSERT_EXPR(false, L"Failed to redirect detour");
@@ -182,8 +181,8 @@ CLINKAGE void EXPORT StartVisualStudio()
 
 	GetModuleFileNameA(0, buff, sizeof(buff));
 
-	int nStacksCollected = GetNumStacksCollected();
-	sprintf_s(buff, _countof(buff), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%d", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected);
+	LONGLONG nStacksCollected = GetNumStacksCollected();
+	sprintf_s(buff, _countof(buff), "Detours unhooked, calling WinApi MessageboxA # allocs = %d   AllocSize = %lld  Stks Collected=%lld", g_nTotalAllocs, g_TotalAllocSize, nStacksCollected);
 	MessageBoxA(0, buff, "Calling the WinApi version of MessageboxA", 0);
 	_ASSERT_EXPR(g_nTotalAllocs > 400 && g_TotalAllocSize > 70000, L"#expected > 2400 allocations of >700k bytes");
 	_ASSERT_EXPR(nStacksCollected > 50, L"#expected > 50 stacks collected");
